@@ -1,17 +1,36 @@
 #!/bin/sh
-# Write config from env var if config file doesn't already exist
+# Validate and/or write config.json on every startup.
+#
+# If a config file already exists on the persistent volume, validate it first.
+# A malformed file (e.g. unescaped control characters from a previous bad write)
+# is deleted so nanobot never tries to load invalid JSON.  After any deletion,
+# or when no file exists at all, the file is recreated from NANOBOT_CONFIG if
+# that env var is set.  If neither a valid file nor the env var is present,
+# nanobot falls back to its built-in defaults.
 mkdir -p /root/.nanobot
-if [ ! -f /root/.nanobot/config.json ] && [ -n "$NANOBOT_CONFIG" ]; then
-  # Use Python to validate and write the config so that any unescaped control
-  # characters in the environment variable are caught before they can produce
-  # malformed JSON that would crash nanobot at startup.
-  python3 - <<'EOF'
+python3 - <<'EOF'
 import json
 import os
 import sys
 
-raw = os.environ.get("NANOBOT_CONFIG", "")
 dest = "/root/.nanobot/config.json"
+raw  = os.environ.get("NANOBOT_CONFIG", "")
+
+# --- Step 1: validate any existing config file ---
+if os.path.exists(dest):
+    try:
+        with open(dest, "r") as f:
+            json.load(f)
+        print("Config file is valid JSON — no changes needed.")
+        sys.exit(0)
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"WARNING: Existing config file is invalid ({exc}). Deleting it.", file=sys.stderr)
+        os.remove(dest)
+
+# --- Step 2: recreate from env var if available ---
+if not raw:
+    print("No NANOBOT_CONFIG set and no valid config file — nanobot will use defaults.")
+    sys.exit(0)
 
 try:
     parsed = json.loads(raw)
@@ -24,5 +43,4 @@ with open(dest, "w") as f:
 
 print("Config written from NANOBOT_CONFIG env var.")
 EOF
-fi
 exec nanobot gateway
