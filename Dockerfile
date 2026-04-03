@@ -35,8 +35,11 @@ WORKDIR /app
 # Create config directory
 RUN mkdir -p /root/.nanobot
 
+# Entrypoint script for Railway (writes config from env var)
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Gateway default port
 EXPOSE 18790
 
-ENTRYPOINT ["nanobot"]
-CMD ["status"]
+ENTRYPOINT ["/entrypoint.sh"]
